@@ -45,10 +45,25 @@ int  device_num = 0; // Number of devices
 char device_name[MAX_DEVICES][MAX_DEVICE_NAME + 1] = {""};
 int  device_rate[MAX_DEVICES] = {INT_MAX};
 
+// may need a queue for each device to store upcoming i/o
 
+// PROCESSES
+#define EVENT_IO 2
+#define EVENT_EXIT 1
+
+int proc_num = 0;
+int proc_start_time[MAX_PROCESSES]    = {0};
+int proc_total_events[MAX_PROCESSES]  = {0};
+int proc_current_event[MAX_PROCESSES] = {0}; // Stores which event the proc will do next
+int proc_event_type[MAX_PROCESSES][MAX_EVENTS_PER_PROCESS]   = {0}; // i/o or exit
+int proc_event_time[MAX_PROCESSES][MAX_EVENTS_PER_PROCESS]   = {0};
+int proc_event_device[MAX_PROCESSES][MAX_EVENTS_PER_PROCESS] = {0};
+int proc_event_data[MAX_PROCESSES][MAX_EVENTS_PER_PROCESS]   = {0};
 
 
 //  ----------------------------------------------------------------------
+
+
 #define CHAR_COMMENT            '#'
 #define MAXWORD                 20
 
@@ -84,12 +99,14 @@ void parse_tracefile(char program[], char tracefile[])
         if(nwords <= 0) {
             continue;
         }
+
         //  LOOK FOR LINES DEFINING DEVICES, PROCESSES, AND PROCESS EVENTS
+
         if(nwords == 4 && strcmp(word0, "device") == 0) {
+            // Device found
             strcpy(device_name[device_num], word1);
             device_rate[device_num] = atoi(word2);
             device_num++;
-            ;   // FOUND A DEVICE DEFINITION, WE'LL NEED TO STORE THIS SOMEWHERE
         }
 
         else if(nwords == 1 && strcmp(word0, "reboot") == 0) {
@@ -97,15 +114,23 @@ void parse_tracefile(char program[], char tracefile[])
         }
 
         else if(nwords == 4 && strcmp(word0, "process") == 0) {
-            ;   // FOUND THE START OF A PROCESS'S EVENTS, STORE THIS SOMEWHERE
+            proc_start_time[proc_num] = atoi(word2);
         }
 
         else if(nwords == 4 && strcmp(word0, "i/o") == 0) {
-            ;   //  AN I/O EVENT FOR THE CURRENT PROCESS, STORE THIS SOMEWHERE
+            proc_event_type[proc_num][proc_total_events[proc_num]] = EVENT_IO;
+            proc_event_time[proc_num][proc_total_events[proc_num]] = atoi(word1);
+            proc_event_device[proc_num][proc_total_events[proc_num]] = atoi(word2);
+            proc_event_data[proc_num][proc_total_events[proc_num]] = atoi(word3);
+            proc_total_events[proc_num]++;
         }
 
         else if(nwords == 2 && strcmp(word0, "exit") == 0) {
-            ;   //  PRESUMABLY THE LAST EVENT WE'LL SEE FOR THE CURRENT PROCESS
+            proc_event_type[proc_num][proc_total_events[proc_num]] = EVENT_EXIT;
+            proc_event_time[proc_num][proc_total_events[proc_num]] = atoi(word1);
+            proc_total_events[proc_num]++;
+
+            proc_num++; // End of this process
         }
 
         else if(nwords == 1 && strcmp(word0, "}") == 0) {
@@ -127,8 +152,32 @@ void parse_tracefile(char program[], char tracefile[])
 
     for (int i = 0; i < device_num; i++)
     {
-        printf("%s: %i bytes/sec\n", device_name[i], device_rate[i]);
+        printf("%6s: %10i bytes/sec\n", device_name[i], device_rate[i]);
     }
+
+    printf("\n");
+
+    // Print processes
+    printf("-- Processes --\nNumber of processes: %i\n", proc_num);
+
+    for (int i = 0; i < proc_num; i++)
+    {
+        printf("Process: %2i | Start time: %ius | Number of events: %3i\n", i, proc_start_time[i], proc_total_events[i]);
+        for (int j = 0; j < proc_total_events[i]; j++)
+        {
+            if (proc_event_type[i][j] == EVENT_IO)
+            {
+                printf("\tEvent type:  i/o | Occurrence time: %5i | Device name: %6s | Data: %6i bytes\n", proc_event_time[i][j], device_name[proc_event_device[i][j]], proc_event_data[i][j]);
+            } else {
+                printf("\tEvent type: exit | Occurrence time: %5i\n", proc_event_time[i][j]);
+            }
+            
+            
+        }
+        
+    }
+    
+    printf("\n\n");
     
 }
 
