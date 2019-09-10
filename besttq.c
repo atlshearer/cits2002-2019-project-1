@@ -3,6 +3,8 @@
 #include <string.h>
 #include <limits.h>
 
+#include "queue.h"
+
 /* CITS2002 Project 1 2019
    Name(s):             Alexander Shearer, Thomas Kinsella
    Student number(s):   22465777, 22177293
@@ -48,12 +50,13 @@ int  device_rate[MAX_DEVICES] = {INT_MAX};
 // may need a queue for each device to store upcoming i/o
 
 // PROCESSES
-#define EVENT_IO 2
-#define EVENT_EXIT 1
+#define EVENT_IO 1
+#define EVENT_EXIT 2
 
 int proc_num = 0;
 int proc_start_time[MAX_PROCESSES]    = {0};
 int proc_total_events[MAX_PROCESSES]  = {0};
+char proc_started[MAX_PROCESSES] = {0}; // bool to store if started (deals with edge case of simultaneous start)
 int proc_current_event[MAX_PROCESSES] = {0}; // Stores which event the proc will do next
 int proc_event_type[MAX_PROCESSES][MAX_EVENTS_PER_PROCESS]   = {0}; // i/o or exit
 int proc_event_time[MAX_PROCESSES][MAX_EVENTS_PER_PROCESS]   = {0};
@@ -61,8 +64,28 @@ int proc_event_device[MAX_PROCESSES][MAX_EVENTS_PER_PROCESS] = {0};
 int proc_event_data[MAX_PROCESSES][MAX_EVENTS_PER_PROCESS]   = {0};
 
 
-//  ----------------------------------------------------------------------
+// Simulation data
+#define PROC_EVENT 1     //next event is a processor event - TQ, i/o req, exit
+#define IO_FINISH 2   // next event is an i/o event completing
+#define NEW_PROC 3 // a new process needs to be added to ready queue
 
+#define NO_PROC -1
+
+struct queue *sim_ready_queue;
+struct queue *sim_device_queue[MAX_DEVICES];
+
+int sim_event_type;
+int sim_event_time;
+int sim_event_proc;
+
+int sim_curr_running;
+int sim_curr_io;
+
+//  ----------------------------------------------------------------------
+//  QUEUE HELPER FUNCTIONS
+
+
+//  ----------------------------------------------------------------------
 
 #define CHAR_COMMENT            '#'
 #define MAXWORD                 20
@@ -186,11 +209,78 @@ void parse_tracefile(char program[], char tracefile[])
 
 //  ----------------------------------------------------------------------
 
+int next_proc() {
+    return 1;
+}
+
 //  SIMULATE THE JOB-MIX FROM THE TRACEFILE, FOR THE GIVEN TIME-QUANTUM
 void simulate_job_mix(int time_quantum)
 {
+    // Initalise queues
+    sim_ready_queue = new_queue(MAX_PROCESSES);
+
+    for (int i = 0; i < device_num; i++)
+    {
+        sim_device_queue[i] = new_queue(MAX_PROCESSES);
+    }
+
+    // Reset state
+
+    sim_curr_running = NO_PROC;
+    sim_curr_io = NO_PROC;
+
+    for (int i = 0; i < proc_num; i++)
+    {
+        proc_started[i] = 0;
+        proc_current_event[i] = 0;
+    }
+    
+    // initalise event
+
+    sim_event_type = NEW_PROC;
+    sim_event_proc = next_proc();
+    sim_event_time = proc_start_time[sim_event_proc];
+    // Do some sim
+    char running = 1;
+
+    while (running != 0) {
+        switch (sim_event_type)
+        {
+        case NEW_PROC:
+            /* code */
+            break;
+        
+        case IO_FINISH:
+            
+            break;
+
+        case PROC_EVENT:
+
+            break;
+
+        default:
+            break;
+        }
+
+        printf("Force break\n");
+        running = 0;
+    }
+    
     printf("running simulate_job_mix( time_quantum = %i usecs )\n",
                 time_quantum);
+
+
+
+    // Free queue
+    free_queue(sim_ready_queue);
+    sim_ready_queue = NULL;
+    
+    for (int i = 0; i < device_num; i++)
+    {
+        free_queue(sim_device_queue[i]);
+        sim_device_queue[i] = NULL;
+    }
+    
 }
 
 //  ----------------------------------------------------------------------
