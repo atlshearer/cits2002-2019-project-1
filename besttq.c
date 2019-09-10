@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <limits.h>
 
 /* CITS2002 Project 1 2019
    Name(s):             Alexander Shearer, Thomas Kinsella
@@ -37,13 +38,23 @@ int optimal_time_quantum                = 0;
 int total_process_completion_time       = 0;
 
 //  ----------------------------------------------------------------------
+// DATA STRUCTURES 
 
+// DEVICES
+int  device_num = 0; // Number of devices
+char device_name[MAX_DEVICES][MAX_DEVICE_NAME + 1] = {""};
+int  device_rate[MAX_DEVICES] = {INT_MAX};
+
+
+
+
+//  ----------------------------------------------------------------------
 #define CHAR_COMMENT            '#'
 #define MAXWORD                 20
 
 void parse_tracefile(char program[], char tracefile[])
 {
-//  ATTEMPT TO OPEN OUR TRACEFILE, REPORTING AN ERROR IF WE CAN'T
+    //  ATTEMPT TO OPEN OUR TRACEFILE, REPORTING AN ERROR IF WE CAN'T
     FILE *fp    = fopen(tracefile, "r");
 
     if(fp == NULL) {
@@ -54,27 +65,30 @@ void parse_tracefile(char program[], char tracefile[])
     char line[BUFSIZ];
     int  lc     = 0;
 
-//  READ EACH LINE FROM THE TRACEFILE, UNTIL WE REACH THE END-OF-FILE
+    //  READ EACH LINE FROM THE TRACEFILE, UNTIL WE REACH THE END-OF-FILE
     while(fgets(line, sizeof line, fp) != NULL) {
         ++lc;
 
-//  COMMENT LINES ARE SIMPLY SKIPPED
+        //  COMMENT LINES ARE SIMPLY SKIPPED
         if(line[0] == CHAR_COMMENT) {
             continue;
         }
 
-//  ATTEMPT TO BREAK EACH LINE INTO A NUMBER OF WORDS, USING sscanf()
+        // ATTEMPT TO BREAK EACH LINE INTO A NUMBER OF WORDS, USING sscanf()
         char    word0[MAXWORD], word1[MAXWORD], word2[MAXWORD], word3[MAXWORD];
         int nwords = sscanf(line, "%s %s %s %s", word0, word1, word2, word3);
 
-//      printf("%i = %s", nwords, line);
+        //      printf("%i = %s", nwords, line);
 
-//  WE WILL SIMPLY IGNORE ANY LINE WITHOUT ANY WORDS
+        //  WE WILL SIMPLY IGNORE ANY LINE WITHOUT ANY WORDS
         if(nwords <= 0) {
             continue;
         }
-//  LOOK FOR LINES DEFINING DEVICES, PROCESSES, AND PROCESS EVENTS
+        //  LOOK FOR LINES DEFINING DEVICES, PROCESSES, AND PROCESS EVENTS
         if(nwords == 4 && strcmp(word0, "device") == 0) {
+            strcpy(device_name[device_num], word1);
+            device_rate[device_num] = atoi(word2);
+            device_num++;
             ;   // FOUND A DEVICE DEFINITION, WE'LL NEED TO STORE THIS SOMEWHERE
         }
 
@@ -104,6 +118,18 @@ void parse_tracefile(char program[], char tracefile[])
         }
     }
     fclose(fp);
+
+
+    // DEBUG
+
+    // Print devices & rates
+    printf("-- Devices --\nNumber of devices: %i\n", device_num);
+
+    for (int i = 0; i < device_num; i++)
+    {
+        printf("%s: %i bytes/sec\n", device_name[i], device_rate[i]);
+    }
+    
 }
 
 #undef  MAXWORD
