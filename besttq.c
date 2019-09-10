@@ -3,8 +3,8 @@
 #include <string.h>
 
 /* CITS2002 Project 1 2019
-   Name(s):             student-name1 (, student-name2)
-   Student number(s):   student-number-1 (, student-number-2)
+   Name(s):             Alexander Shearer, Thomas Kinsella
+   Student number(s):   22465777, 22177293
  */
 
 
