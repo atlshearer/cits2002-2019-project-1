@@ -61,6 +61,8 @@ int proc_event_time[MAX_PROCESSES][MAX_EVENTS_PER_PROCESS];
 int proc_event_device[MAX_PROCESSES][MAX_EVENTS_PER_PROCESS];
 int proc_event_data[MAX_PROCESSES][MAX_EVENTS_PER_PROCESS];
 char proc_started[MAX_PROCESSES];
+int proc_current_event[MAX_PROCESSES];
+int proc_total_time[MAX_PROCESSES]; // Total time proc has run for
 
 
 // Simulation data
@@ -70,6 +72,8 @@ char proc_started[MAX_PROCESSES];
 #define NEW_PROC 3 // a new process needs to be added to ready queue
 
 #define NO_PROC -1
+
+int system_time = 0;
 
 struct queue *sim_ready_queue;
 struct queue *sim_device_queue[MAX_DEVICES];
@@ -234,6 +238,18 @@ int next_proc() {
     return first_id;
 }
 
+int find_event_time(int time_quantum, int context_switch_time, int proc_id) {
+    int process_time_to_next_event = proc_event_time[proc_id][proc_current_event[proc_id]] - proc_total_time[proc_id];
+    
+    if (process_time_to_next_event <= time_quantum) {
+        proc_total_time[proc_id] += process_time_to_next_event;
+        return system_time + context_switch_time + process_time_to_next_event;
+    } else {
+        proc_total_time[proc_id] += time_quantum;
+        return system_time + context_switch_time + time_quantum;
+    }
+}
+
 //  SIMULATE THE JOB-MIX FROM THE TRACEFILE, FOR THE GIVEN TIME-QUANTUM
 void simulate_job_mix(int time_quantum)
 {
@@ -254,15 +270,14 @@ void simulate_job_mix(int time_quantum)
     int sim_next_start = NO_PROC;
     int sim_next_start_time = 0;
 
-    int proc_current_event[MAX_PROCESSES];
-    int proc_total_time[MAX_PROCESSES]; // Total time proc has run for
-
-    int system_time = 0;
-
+    system_time = 0;
+    int first_start_time = 0;
+    
     for (int i = 0; i < proc_num; i++)
     {
         proc_started[i] = 0;
         proc_current_event[i] = 0;
+        proc_total_time[i] = 0;
         
     }
     
@@ -270,10 +285,11 @@ void simulate_job_mix(int time_quantum)
     
     sim_next_start = next_proc();
     sim_next_start_time = proc_start_time[sim_next_start];
+    first_start_time = sim_next_start_time;
 
     printf("First proc id: %i at time %ius\n\n", sim_next_start, sim_next_start_time);
     
-    printf("Starting simulation!\n");
+    printf("Starting simulation with TQ: %4ius\n", time_quantum);
     
     // Do some sim
     char running = 1;
@@ -301,9 +317,44 @@ void simulate_job_mix(int time_quantum)
             case PROC_EVENT:
                 printf("EVENT | type: PROC_EVENT time: %6ius\n", next_event_time);
                 printf("      | Advancing system time from %6ius to %6ius\n", system_time, next_event_time);
+                printf("      | Current process time (%i) %ius\n", sim_curr_run, proc_total_time[sim_curr_run]);
+                printf("      | Current next event time (%i, %i) %ius\n", sim_curr_run, proc_current_event[sim_curr_run], proc_event_time[sim_curr_run][proc_current_event[sim_curr_run]]);
                 system_time = next_event_time;
                 
-                sim_curr_run = NO_PROC;
+                // i/o, TQ or exit?
+                
+                if (proc_total_time[sim_curr_run] == proc_event_time[sim_curr_run][proc_current_event[sim_curr_run]]) {
+                    proc_current_event[sim_curr_run]++;
+                    // i/o or exit
+                    
+                    // exit
+                    printf("EXIT  | Exit event occured for process %i\n", sim_curr_run);
+                    if (is_empty(sim_ready_queue)) {
+                        sim_curr_run = NO_PROC;
+                    } else {
+                        sim_curr_run = front(sim_ready_queue);
+                        dequeue(sim_ready_queue);
+                        
+                        sim_curr_run_event_time = find_event_time(time_quantum, TIME_CONTEXT_SWITCH, sim_curr_run);
+                    }
+                } else {
+                    printf("      | Timeout occured\n");
+                    // TQ
+                    if (is_empty(sim_ready_queue)) {
+                        printf("      | No process ready. Continue running. (%i) -> (%i)\n", sim_curr_run, sim_curr_run);
+                        // cont. running no context switch
+                        
+                        sim_curr_run_event_time = find_event_time(time_quantum, 0, sim_curr_run);
+                    } else {
+                        printf("      | Process ready. Context swtich. (%i) -> (%i)\n", sim_curr_run, front(sim_ready_queue));
+                        enqueue(sim_ready_queue, sim_curr_run);
+                        sim_curr_run = front(sim_ready_queue);
+                        dequeue(sim_ready_queue);
+                        
+                        sim_curr_run_event_time = find_event_time(time_quantum, TIME_CONTEXT_SWITCH, sim_curr_run);
+                    }
+                }
+                
                 break;
                 
             case IO_FINISH:
@@ -315,20 +366,12 @@ void simulate_job_mix(int time_quantum)
                 printf("      | Advancing system time from %6ius to %6ius\n", system_time, next_event_time);
                 system_time = next_event_time;
                 
-                if (is_empty(sim_ready_queue)) {
+                if (sim_curr_run == NO_PROC) {
                     sim_curr_run = sim_next_start;
+                    
+                    sim_curr_run_event_time = find_event_time(time_quantum, TIME_CONTEXT_SWITCH, sim_curr_run);
                 } else {
-                    sim_curr_run = front(sim_ready_queue);
-                    dequeue(sim_ready_queue);
                     enqueue(sim_ready_queue, sim_next_start);
-                }
-                
-                int process_time_to_next_event = proc_event_time[sim_curr_run][proc_current_event[sim_curr_run]] - proc_total_time[sim_curr_run];
-                
-                if (process_time_to_next_event <= time_quantum) {
-                    sim_curr_run_event_time = system_time + TIME_CONTEXT_SWITCH + process_time_to_next_event;
-                } else {
-                    sim_curr_run_event_time = system_time + TIME_CONTEXT_SWITCH + time_quantum;
                 }
                 
                 sim_next_start = next_proc();
@@ -350,9 +393,15 @@ void simulate_job_mix(int time_quantum)
         }
     }
     
-    printf("running simulate_job_mix( time_quantum = %i usecs )\n",
-                time_quantum);
+    printf("Finished...\n");
+    printf("\033[1;31m");
+    printf("Runtime %ius\n\n", system_time - first_start_time);
+    printf("\033[0m");
 
+    if (system_time - first_start_time <= total_process_completion_time) {
+        total_process_completion_time = system_time - first_start_time;
+        optimal_time_quantum = time_quantum;
+    }
 
 
     // Free queue
