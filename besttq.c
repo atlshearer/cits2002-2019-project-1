@@ -37,7 +37,7 @@
 //  (SO YOU CAN SAFELY USE 'STANDARD' 32-BIT ints TO STORE TIMES).
 
 int optimal_time_quantum                = 0;
-int total_process_completion_time       = 0;
+int total_process_completion_time       = INT_MAX;
 
 //  ----------------------------------------------------------------------
 // DATA STRUCTURES 
@@ -54,17 +54,17 @@ int  device_rate[MAX_DEVICES] = {INT_MAX};
 #define EVENT_EXIT 2
 
 int proc_num = 0;
-int proc_start_time[MAX_PROCESSES]    = {0};
-int proc_total_events[MAX_PROCESSES]  = {0};
-char proc_started[MAX_PROCESSES] = {0}; // bool to store if started (deals with edge case of simultaneous start)
-int proc_current_event[MAX_PROCESSES] = {0}; // Stores which event the proc will do next
-int proc_event_type[MAX_PROCESSES][MAX_EVENTS_PER_PROCESS]   = {0}; // i/o or exit
-int proc_event_time[MAX_PROCESSES][MAX_EVENTS_PER_PROCESS]   = {0};
-int proc_event_device[MAX_PROCESSES][MAX_EVENTS_PER_PROCESS] = {0};
-int proc_event_data[MAX_PROCESSES][MAX_EVENTS_PER_PROCESS]   = {0};
+int proc_start_time[MAX_PROCESSES];
+int proc_total_events[MAX_PROCESSES];
+int proc_event_type[MAX_PROCESSES][MAX_EVENTS_PER_PROCESS]; // i/o or exit
+int proc_event_time[MAX_PROCESSES][MAX_EVENTS_PER_PROCESS];
+int proc_event_device[MAX_PROCESSES][MAX_EVENTS_PER_PROCESS];
+int proc_event_data[MAX_PROCESSES][MAX_EVENTS_PER_PROCESS];
+char proc_started[MAX_PROCESSES];
 
 
 // Simulation data
+#define NO_EVENT -1
 #define PROC_EVENT 1     //next event is a processor event - TQ, i/o req, exit
 #define IO_FINISH 2   // next event is an i/o event completing
 #define NEW_PROC 3 // a new process needs to be added to ready queue
@@ -74,12 +74,6 @@ int proc_event_data[MAX_PROCESSES][MAX_EVENTS_PER_PROCESS]   = {0};
 struct queue *sim_ready_queue;
 struct queue *sim_device_queue[MAX_DEVICES];
 
-int sim_event_type;
-int sim_event_time;
-int sim_event_proc;
-
-int sim_curr_running;
-int sim_curr_io;
 
 //  ----------------------------------------------------------------------
 //  QUEUE HELPER FUNCTIONS
@@ -89,6 +83,18 @@ int sim_curr_io;
 
 #define CHAR_COMMENT            '#'
 #define MAXWORD                 20
+
+int device_id(char name[])
+{
+    for (int i = 0; i < device_num; i++) {
+        if (strcmp(device_name[i], name) == 0) {
+            return i;
+	}
+    }
+    fprintf(stderr, "Could not find device: %s", name);
+    exit(EXIT_FAILURE);
+}
+
 
 void parse_tracefile(char program[], char tracefile[])
 {
@@ -143,7 +149,7 @@ void parse_tracefile(char program[], char tracefile[])
         else if(nwords == 4 && strcmp(word0, "i/o") == 0) {
             proc_event_type[proc_num][proc_total_events[proc_num]] = EVENT_IO;
             proc_event_time[proc_num][proc_total_events[proc_num]] = atoi(word1);
-            proc_event_device[proc_num][proc_total_events[proc_num]] = atoi(word2);
+            proc_event_device[proc_num][proc_total_events[proc_num]] = device_id(word2);
             proc_event_data[proc_num][proc_total_events[proc_num]] = atoi(word3);
             proc_total_events[proc_num]++;
         }
@@ -209,8 +215,23 @@ void parse_tracefile(char program[], char tracefile[])
 
 //  ----------------------------------------------------------------------
 
+// Finds id of next process that will start
 int next_proc() {
-    return 1;
+    int first_id = NO_PROC;
+    int first_time = INT_MAX;
+    
+    for (int i = 0; i < proc_num; i++) {
+        if (proc_started[i] == 0 && proc_start_time[i] < first_time) {
+            first_id = i;
+            first_time = proc_start_time[i];
+        }
+    }
+    
+    if (first_id != NO_PROC) {
+        proc_started[first_id] = 1;
+    }
+    
+    return first_id;
 }
 
 //  SIMULATE THE JOB-MIX FROM THE TRACEFILE, FOR THE GIVEN TIME-QUANTUM
@@ -226,44 +247,107 @@ void simulate_job_mix(int time_quantum)
 
     // Reset state
 
-    sim_curr_running = NO_PROC;
-    sim_curr_io = NO_PROC;
+    int sim_curr_run = NO_PROC;
+    int sim_curr_run_event_time = 0;
+    int sim_curr_io = NO_PROC;
+    int sim_curr_io_event_time = 0;
+    int sim_next_start = NO_PROC;
+    int sim_next_start_time = 0;
+
+    int proc_current_event[MAX_PROCESSES];
+    int proc_total_time[MAX_PROCESSES]; // Total time proc has run for
+
+    int system_time = 0;
 
     for (int i = 0; i < proc_num; i++)
     {
         proc_started[i] = 0;
         proc_current_event[i] = 0;
+        
     }
     
     // initalise event
+    
+    sim_next_start = next_proc();
+    sim_next_start_time = proc_start_time[sim_next_start];
 
-    sim_event_type = NEW_PROC;
-    sim_event_proc = next_proc();
-    sim_event_time = proc_start_time[sim_event_proc];
+    printf("First proc id: %i at time %ius\n\n", sim_next_start, sim_next_start_time);
+    
+    printf("Starting simulation!\n");
+    
     // Do some sim
     char running = 1;
 
     while (running != 0) {
-        switch (sim_event_type)
-        {
-        case NEW_PROC:
-            /* code */
-            break;
+        int next_event_type = NO_EVENT;
+        int next_event_time = INT_MAX;
         
-        case IO_FINISH:
-            
-            break;
-
-        case PROC_EVENT:
-
-            break;
-
-        default:
-            break;
+        if (sim_curr_run != NO_PROC && sim_curr_run_event_time < next_event_time) {
+            next_event_type = PROC_EVENT;
+            next_event_time = sim_curr_run_event_time;
         }
-
-        printf("Force break\n");
-        running = 0;
+        
+        if (sim_curr_io != NO_PROC && sim_curr_io_event_time < next_event_time) {
+            next_event_type = IO_FINISH;
+            next_event_time = sim_curr_io_event_time;
+        }
+        
+        if (sim_next_start != NO_PROC && sim_next_start_time < next_event_time) {
+            next_event_type = NEW_PROC;
+            next_event_time = sim_next_start_time;
+        }
+        
+        switch (next_event_type) {
+            case PROC_EVENT:
+                printf("EVENT | type: PROC_EVENT time: %6ius\n", next_event_time);
+                printf("      | Advancing system time from %6ius to %6ius\n", system_time, next_event_time);
+                system_time = next_event_time;
+                
+                sim_curr_run = NO_PROC;
+                break;
+                
+            case IO_FINISH:
+                printf("EVENT | type: IO_FINISH  time: %4ius\n", next_event_time);
+                break;
+            
+            case NEW_PROC:
+                printf("EVENT | type: NEW_PROC   time: %6ius\n", next_event_time);
+                printf("      | Advancing system time from %6ius to %6ius\n", system_time, next_event_time);
+                system_time = next_event_time;
+                
+                if (is_empty(sim_ready_queue)) {
+                    sim_curr_run = sim_next_start;
+                } else {
+                    sim_curr_run = front(sim_ready_queue);
+                    dequeue(sim_ready_queue);
+                    enqueue(sim_ready_queue, sim_next_start);
+                }
+                
+                int process_time_to_next_event = proc_event_time[sim_curr_run][proc_current_event[sim_curr_run]] - proc_total_time[sim_curr_run];
+                
+                if (process_time_to_next_event <= time_quantum) {
+                    sim_curr_run_event_time = system_time + TIME_CONTEXT_SWITCH + process_time_to_next_event;
+                } else {
+                    sim_curr_run_event_time = system_time + TIME_CONTEXT_SWITCH + time_quantum;
+                }
+                
+                sim_next_start = next_proc();
+                if (sim_next_start != NO_PROC) {
+                    sim_next_start_time = proc_start_time[sim_next_start];
+                }
+                
+                break;
+                
+            case NO_EVENT:
+                printf("EVENT | type: NO_EVENT   time: %4ius\n", system_time);
+                running = 0;
+                // FINSIH HERE
+                break;
+            default:
+                fprintf(stderr, "Bruh.jpg\n");
+                exit(EXIT_FAILURE);
+                break;
+        }
     }
     
     printf("running simulate_job_mix( time_quantum = %i usecs )\n",
