@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <limits.h>
+#include <math.h>
 
 #include "queue.h"
 
@@ -72,11 +73,16 @@ int proc_total_time[MAX_PROCESSES]; // Total time proc has run for
 #define NEW_PROC 3 // a new process needs to be added to ready queue
 
 #define NO_PROC -1
+#define NO_DEVICE -1
 
 int system_time = 0;
 
 struct queue *sim_ready_queue;
 struct queue *sim_device_queue[MAX_DEVICES];
+
+
+// Flags
+int debug_enable = 1;
 
 
 //  ----------------------------------------------------------------------
@@ -88,12 +94,12 @@ struct queue *sim_device_queue[MAX_DEVICES];
 #define CHAR_COMMENT            '#'
 #define MAXWORD                 20
 
-int device_id(char name[])
+int find_device_id(char name[])
 {
     for (int i = 0; i < device_num; i++) {
         if (strcmp(device_name[i], name) == 0) {
             return i;
-	}
+        }
     }
     fprintf(stderr, "Could not find device: %s", name);
     exit(EXIT_FAILURE);
@@ -153,7 +159,7 @@ void parse_tracefile(char program[], char tracefile[])
         else if(nwords == 4 && strcmp(word0, "i/o") == 0) {
             proc_event_type[proc_num][proc_total_events[proc_num]] = EVENT_IO;
             proc_event_time[proc_num][proc_total_events[proc_num]] = atoi(word1);
-            proc_event_device[proc_num][proc_total_events[proc_num]] = device_id(word2);
+            proc_event_device[proc_num][proc_total_events[proc_num]] = find_device_id(word2);
             proc_event_data[proc_num][proc_total_events[proc_num]] = atoi(word3);
             proc_total_events[proc_num]++;
         }
@@ -181,37 +187,38 @@ void parse_tracefile(char program[], char tracefile[])
     // DEBUG
 
     // Print devices & rates
-    printf("-- Devices --\nNumber of devices: %i\n", device_num);
+    if (debug_enable) {
+        printf("-- Devices --\nNumber of devices: %i\n", device_num);
 
-    for (int i = 0; i < device_num; i++)
-    {
-        printf("%6s: %10i bytes/sec\n", device_name[i], device_rate[i]);
-    }
-
-    printf("\n");
-
-    // Print processes
-    printf("-- Processes --\nNumber of processes: %i\n", proc_num);
-
-    for (int i = 0; i < proc_num; i++)
-    {
-        printf("Process: %2i | Start time: %ius | Number of events: %3i\n", i, proc_start_time[i], proc_total_events[i]);
-        for (int j = 0; j < proc_total_events[i]; j++)
+        for (int i = 0; i < device_num; i++)
         {
-            if (proc_event_type[i][j] == EVENT_IO)
+            printf("%6s: %10i bytes/sec\n", device_name[i], device_rate[i]);
+        }
+
+        printf("\n");
+
+        // Print processes
+        printf("-- Processes --\nNumber of processes: %i\n", proc_num);
+
+        for (int i = 0; i < proc_num; i++)
+        {
+            printf("Process: %2i | Start time: %ius | Number of events: %3i\n", i, proc_start_time[i], proc_total_events[i]);
+            for (int j = 0; j < proc_total_events[i]; j++)
             {
-                printf("\tEvent type:  i/o | Occurrence time: %5i | Device name: %6s | Data: %6i bytes\n", proc_event_time[i][j], device_name[proc_event_device[i][j]], proc_event_data[i][j]);
-            } else {
-                printf("\tEvent type: exit | Occurrence time: %5i\n", proc_event_time[i][j]);
+                if (proc_event_type[i][j] == EVENT_IO)
+                {
+                    printf("\tEvent type:  i/o | Occurrence time: %5i | Device name: %6s | Data: %6i bytes\n", proc_event_time[i][j], device_name[proc_event_device[i][j]], proc_event_data[i][j]);
+                } else {
+                    printf("\tEvent type: exit | Occurrence time: %5i\n", proc_event_time[i][j]);
+                }
+                
+                
             }
-            
             
         }
         
+        printf("\n\n");
     }
-    
-    printf("\n\n");
-    
 }
 
 #undef  MAXWORD
@@ -287,9 +294,11 @@ void simulate_job_mix(int time_quantum)
     sim_next_start_time = proc_start_time[sim_next_start];
     first_start_time = sim_next_start_time;
 
-    printf("First proc id: %i at time %ius\n\n", sim_next_start, sim_next_start_time);
-    
-    printf("Starting simulation with TQ: %4ius\n", time_quantum);
+    if (debug_enable){
+        printf("First proc id: %i at time %ius\n\n", sim_next_start, sim_next_start_time);
+        
+        printf("Starting simulation with TQ: %4ius\n", time_quantum);
+    }
     
     // Do some sim
     char running = 1;
@@ -315,38 +324,97 @@ void simulate_job_mix(int time_quantum)
         
         switch (next_event_type) {
             case PROC_EVENT:
-                printf("EVENT | type: PROC_EVENT time: %6ius\n", next_event_time);
-                printf("      | Advancing system time from %6ius to %6ius\n", system_time, next_event_time);
-                printf("      | Current process time (%i) %ius\n", sim_curr_run, proc_total_time[sim_curr_run]);
-                printf("      | Current next event time (%i, %i) %ius\n", sim_curr_run, proc_current_event[sim_curr_run], proc_event_time[sim_curr_run][proc_current_event[sim_curr_run]]);
+                if (debug_enable) {
+                    printf("EVENT | type: PROC_EVENT time: %6ius\n", next_event_time);
+                    printf("      | Advancing system time from %6ius to %6ius\n", system_time, next_event_time);
+                    printf("      | Current process time (%i) %ius\n", sim_curr_run, proc_total_time[sim_curr_run]);
+                    printf("      | Current next event time (%i, %i) %ius\n", sim_curr_run, proc_current_event[sim_curr_run], proc_event_time[sim_curr_run][proc_current_event[sim_curr_run]]);
+                }
+                
                 system_time = next_event_time;
+                
                 
                 // i/o, TQ or exit?
                 
                 if (proc_total_time[sim_curr_run] == proc_event_time[sim_curr_run][proc_current_event[sim_curr_run]]) {
-                    proc_current_event[sim_curr_run]++;
-                    // i/o or exit
                     
-                    // exit
-                    printf("EXIT  | Exit event occured for process %i\n", sim_curr_run);
-                    if (is_empty(sim_ready_queue)) {
-                        sim_curr_run = NO_PROC;
-                    } else {
-                        sim_curr_run = front(sim_ready_queue);
-                        dequeue(sim_ready_queue);
+                    if (proc_event_type[sim_curr_run][proc_current_event[sim_curr_run]] == EVENT_IO) {
+                        if (debug_enable) {
+                            printf("      | I/O request event occured for process %i\n", sim_curr_run);
+                        }
+                        // IO EVENT
+                        int device_id = proc_event_device[sim_curr_run][proc_current_event[sim_curr_run]];
                         
-                        sim_curr_run_event_time = find_event_time(time_quantum, TIME_CONTEXT_SWITCH, sim_curr_run);
+                        // adds to queue / goes onto bus (aquire time)
+                        if (sim_curr_io == NO_PROC) {
+                            double this_device_rate = (double) device_rate[device_id] / 1000000.0; // second -> us
+                            double data_amount = proc_event_data[sim_curr_run][proc_current_event[sim_curr_run]];
+                            int transfer_time = ceil((int) data_amount / this_device_rate);
+                            
+                            
+                            
+                            sim_curr_io = sim_curr_run;
+                            sim_curr_io_event_time = system_time + transfer_time + TIME_ACQUIRE_BUS;
+                            
+                            if (debug_enable){
+                                printf("      | (%i) is engaging bus. Transfer time %ius. Complete time %ius\n", sim_curr_run, transfer_time, sim_curr_io_event_time);
+                            }
+                        } else {
+                            // add to queue
+                            
+                            
+                            enqueue(sim_device_queue[device_id], sim_curr_run);
+                            if (debug_enable) {
+                                printf("      | Bus engaged by (%i), adding to (%s) queue in postition %i\n", sim_curr_io, device_name[device_id], size(sim_device_queue[device_id]));
+                            }
+                        }
+                        
+                        
+                        
+                        // proc leaves cpu (new proc dispatched to cpu)
+                        if (is_empty(sim_ready_queue)) {
+                            sim_curr_run = NO_PROC;
+                        } else {
+                            sim_curr_run = front(sim_ready_queue);
+                            dequeue(sim_ready_queue);
+                            
+                            sim_curr_run_event_time = find_event_time(time_quantum, TIME_CONTEXT_SWITCH, sim_curr_run);
+                        }
+                        
+                    } else {
+                        proc_current_event[sim_curr_run]++; // Event processed, iterate
+                        
+                        if (debug_enable) {
+                            printf("EXIT  | Exit event occured for process %i\n", sim_curr_run);
+                        }
+                        
+                        if (is_empty(sim_ready_queue)) {
+                            sim_curr_run = NO_PROC;
+                        } else {
+                            sim_curr_run = front(sim_ready_queue);
+                            dequeue(sim_ready_queue);
+                            
+                            sim_curr_run_event_time = find_event_time(time_quantum, TIME_CONTEXT_SWITCH, sim_curr_run);
+                        }
                     }
+                    
+
                 } else {
-                    printf("      | Timeout occured\n");
+                    if (debug_enable) {
+                        printf("      | Timeout occured\n");
+                    }
                     // TQ
                     if (is_empty(sim_ready_queue)) {
-                        printf("      | No process ready. Continue running. (%i) -> (%i)\n", sim_curr_run, sim_curr_run);
+                        if (debug_enable) {
+                            printf("      | No process ready. Continue running. (%i) -> (%i)\n", sim_curr_run, sim_curr_run);
+                        }
                         // cont. running no context switch
                         
                         sim_curr_run_event_time = find_event_time(time_quantum, 0, sim_curr_run);
                     } else {
-                        printf("      | Process ready. Context swtich. (%i) -> (%i)\n", sim_curr_run, front(sim_ready_queue));
+                        if (debug_enable) {
+                            printf("      | Process ready. Context swtich. (%i) -> (%i)\n", sim_curr_run, front(sim_ready_queue));
+                        }
                         enqueue(sim_ready_queue, sim_curr_run);
                         sim_curr_run = front(sim_ready_queue);
                         dequeue(sim_ready_queue);
@@ -358,12 +426,81 @@ void simulate_job_mix(int time_quantum)
                 break;
                 
             case IO_FINISH:
-                printf("EVENT | type: IO_FINISH  time: %4ius\n", next_event_time);
+                if (debug_enable) {
+                    printf("EVENT | type: IO_FINISH  time: %4ius\n", next_event_time);
+                    printf("      | Process ID: %i\n", sim_curr_io);
+                }
+                system_time = next_event_time;
+                
+                // put into ready queue / cpu
+                if (sim_curr_run == NO_PROC) {
+                    sim_curr_run = sim_curr_io;
+                    
+                    sim_curr_run_event_time = find_event_time(time_quantum, TIME_CONTEXT_SWITCH, sim_curr_run);
+                    if (debug_enable) {
+                        printf("      | No process running, moving to running (id=%i)\n", sim_curr_run);
+                    }
+                } else {
+                    enqueue(sim_ready_queue, sim_curr_io);
+                    if (debug_enable) {
+                        printf("      | Process running, moving to ready queue. %i in queue\n", size(sim_ready_queue));
+                    }
+                }
+                
+                // get something from bus boi
+                int next_io_proc = NO_PROC;
+                int best_device_id = NO_DEVICE;
+                int best_device_rate = 0;
+                
+                for (int i = 0; i < device_num; i++) {
+                    if (!is_empty(sim_device_queue[i])) {
+                        if (device_rate[i] > best_device_rate) {
+                            best_device_id = i;
+                            best_device_rate = device_rate[i];
+                        }
+                    }
+                }
+                
+                if (best_device_id != NO_DEVICE) {
+                    next_io_proc = front(sim_device_queue[best_device_id]);
+                    dequeue(sim_device_queue[best_device_id]);
+                    
+                    if (debug_enable) {
+                        printf("      | Fastest device with i/o waiting '%s'\n", device_name[best_device_id]);
+                        printf("      | Blocked process id: %i\n", next_io_proc);
+                        printf("      |     Current event: %i\n", proc_current_event[next_io_proc]);
+                        printf("      |     Process time : %i\n", proc_total_time[next_io_proc]);
+                    }
+                    
+
+                    // Put device
+                    double this_device_rate = (double) best_device_rate / 1000000.0; // second -> us
+                    double data_amount = proc_event_data[next_io_proc][proc_current_event[next_io_proc]];
+                    int transfer_time = ceil((int) data_amount / this_device_rate);
+                    
+                    
+                    sim_curr_io = next_io_proc;
+                    sim_curr_io_event_time = system_time + transfer_time + TIME_ACQUIRE_BUS;
+                    
+                    if (debug_enable) {
+                        printf("      | (%i) is engaging bus. Transfer time %ius. Complete time %ius\n", next_io_proc, transfer_time, sim_curr_io_event_time);
+                    }
+                } else {
+                    sim_curr_io = NO_PROC;
+                    if (debug_enable) {
+                        printf("      | No processes blocked. Bus freed\n");
+                    }
+                }
+                
+                proc_current_event[sim_curr_run]++; // Event processed, iterate
+                
                 break;
             
             case NEW_PROC:
-                printf("EVENT | type: NEW_PROC   time: %6ius\n", next_event_time);
-                printf("      | Advancing system time from %6ius to %6ius\n", system_time, next_event_time);
+                if (debug_enable) {
+                    printf("EVENT | type: NEW_PROC   time: %6ius\n", next_event_time);
+                    printf("      | Advancing system time from %6ius to %6ius\n", system_time, next_event_time);
+                }
                 system_time = next_event_time;
                 
                 if (sim_curr_run == NO_PROC) {
@@ -382,7 +519,9 @@ void simulate_job_mix(int time_quantum)
                 break;
                 
             case NO_EVENT:
-                printf("EVENT | type: NO_EVENT   time: %4ius\n", system_time);
+                if (debug_enable) {
+                    printf("EVENT | type: NO_EVENT   time: %4ius\n", system_time);
+                }
                 running = 0;
                 // FINSIH HERE
                 break;
@@ -393,7 +532,7 @@ void simulate_job_mix(int time_quantum)
         }
     }
     
-    printf("Finished...\n");
+    printf("Finished with TQ: %5i\n", time_quantum);
     printf("\033[1;31m");
     printf("Runtime %ius\n\n", system_time - first_start_time);
     printf("\033[0m");

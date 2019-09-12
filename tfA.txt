@@ -1,5 +1,58 @@
 # one process, no I/O, process exits even before 1st time quantum expires.
 #
-process 1 10 {
-    exit        40
+device	floppy	30000 bytes/sec
+device	disk	80000 bytes/sec
+device  usb2    60000000 bytes/sec
+device  hd      80000000 bytes/sec
+#
+reboot
+#
+process 1 240 {
+	i/o	250	floppy	2200
+	i/o	280	floppy	4600
+	i/o	320	floppy	3440
+	i/o	600	floppy	1600
+	exit	1100
+}
+#
+process 2 280 {
+	i/o	320	floppy	1100
+	i/o	410	floppy	4600
+	i/o	580	floppy	3610
+	i/o	720	floppy	1600
+	exit	1200
+}
+#
+process 3 300 {
+	exit	1800
+}
+#
+process 4 420 {
+	i/o	220	floppy	2100
+	i/o	220	floppy	4600
+	i/o	220	floppy	2100
+	i/o	220	floppy	1600
+	i/o	220	floppy	4100
+	i/o	220	floppy	1600
+	i/o	220	floppy	3210
+	i/o	220	floppy	1600
+	exit	1400
+}
+#
+process 5 500 {
+    i/o		220	disk	1500
+    exit        600
+}
+#
+process  6  510 {
+  i/o      100     hd      1600
+  i/o      110     usb2    1600
+  i/o      180     hd      1000
+  i/o      190     usb2    1000
+  exit     400
+}
+#
+process  7  690 {
+  i/o      8000    usb2    40
+  exit     8005
 }
