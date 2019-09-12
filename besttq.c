@@ -340,7 +340,7 @@ void simulate_job_mix(int time_quantum)
                     
                     if (proc_event_type[sim_curr_run][proc_current_event[sim_curr_run]] == EVENT_IO) {
                         if (debug_enable) {
-                            printf("      | I/O request event occured for process %i\n", sim_curr_run);
+                            printf("      | (#%i) I/O request event occured for process %i\n",proc_current_event[sim_curr_run], sim_curr_run);
                         }
                         // IO EVENT
                         int device_id = proc_event_device[sim_curr_run][proc_current_event[sim_curr_run]];
@@ -350,8 +350,6 @@ void simulate_job_mix(int time_quantum)
                             double this_device_rate = (double) device_rate[device_id] / 1000000.0; // second -> us
                             double data_amount = proc_event_data[sim_curr_run][proc_current_event[sim_curr_run]];
                             int transfer_time = ceil((int) data_amount / this_device_rate);
-                            
-                            
                             
                             sim_curr_io = sim_curr_run;
                             sim_curr_io_event_time = system_time + transfer_time + TIME_ACQUIRE_BUS;
@@ -370,7 +368,7 @@ void simulate_job_mix(int time_quantum)
                         }
                         
                         
-                        
+                        // BUG IS BELOW
                         // proc leaves cpu (new proc dispatched to cpu)
                         if (is_empty(sim_ready_queue)) {
                             sim_curr_run = NO_PROC;
@@ -380,7 +378,7 @@ void simulate_job_mix(int time_quantum)
                             
                             sim_curr_run_event_time = find_event_time(time_quantum, TIME_CONTEXT_SWITCH, sim_curr_run);
                         }
-                        
+                        // BUG IS ABOVE
                     } else {
                         proc_current_event[sim_curr_run]++; // Event processed, iterate
                         
@@ -428,14 +426,13 @@ void simulate_job_mix(int time_quantum)
             case IO_FINISH:
                 if (debug_enable) {
                     printf("EVENT | type: IO_FINISH  time: %4ius\n", next_event_time);
-                    printf("      | Process ID: %i\n", sim_curr_io);
+                    printf("      | Process ID: %i (%i)\n", sim_curr_io, sim_curr_run);
                 }
                 system_time = next_event_time;
                 
                 // put into ready queue / cpu
                 if (sim_curr_run == NO_PROC) {
                     sim_curr_run = sim_curr_io;
-                    
                     sim_curr_run_event_time = find_event_time(time_quantum, TIME_CONTEXT_SWITCH, sim_curr_run);
                     if (debug_enable) {
                         printf("      | No process running, moving to running (id=%i)\n", sim_curr_run);
@@ -460,6 +457,7 @@ void simulate_job_mix(int time_quantum)
                         }
                     }
                 }
+                
                 
                 if (best_device_id != NO_DEVICE) {
                     next_io_proc = front(sim_device_queue[best_device_id]);
@@ -491,7 +489,7 @@ void simulate_job_mix(int time_quantum)
                         printf("      | No processes blocked. Bus freed\n");
                     }
                 }
-                
+                printf("iterating event counter of proc %i\n", sim_curr_run);
                 proc_current_event[sim_curr_run]++; // Event processed, iterate
                 
                 break;
