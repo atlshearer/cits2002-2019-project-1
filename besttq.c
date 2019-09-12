@@ -54,17 +54,35 @@ int  device_rate[MAX_DEVICES] = {INT_MAX};
 #define EVENT_IO 1
 #define EVENT_EXIT 2
 
-int proc_num = 0;
-int proc_start_time[MAX_PROCESSES];
-int proc_total_events[MAX_PROCESSES];
-int proc_event_type[MAX_PROCESSES][MAX_EVENTS_PER_PROCESS]; // i/o or exit
-int proc_event_time[MAX_PROCESSES][MAX_EVENTS_PER_PROCESS];
-int proc_event_device[MAX_PROCESSES][MAX_EVENTS_PER_PROCESS];
-int proc_event_data[MAX_PROCESSES][MAX_EVENTS_PER_PROCESS];
-char proc_started[MAX_PROCESSES];
-int proc_current_event[MAX_PROCESSES];
-int proc_total_time[MAX_PROCESSES]; // Total time proc has run for
+#define STATE_NEW 1
+#define STATE_READY 2
+#define STATE_RUNNING 3
+#define STATE_BLOCKED 4
+#define STATE_EXIT 5
 
+struct Event {
+    int type;
+    int time;
+    int device;
+    int data;
+};
+
+struct Process {
+    int id; // id as passed by tracefile, only used for human readable i/o
+    int start_time;
+    int total_events;
+    struct Event events[MAX_EVENTS_PER_PROCESS];
+    int state;
+    int current_event;
+    int total_time;    // total time a given process has run for
+};
+
+int proc_num = 0;
+struct Process* processes[MAX_PROCESSES];
+
+struct Event* current_event(struct Process* proc) {
+    return &proc->events[proc->current_event];
+}
 
 // Simulation data
 #define NO_EVENT -1
@@ -82,7 +100,7 @@ struct queue *sim_device_queue[MAX_DEVICES];
 
 
 // Flags
-int debug_enable = 0; 
+int debug_enable = 1; 
 
 
 //  ----------------------------------------------------------------------
@@ -153,21 +171,25 @@ void parse_tracefile(char program[], char tracefile[])
         }
 
         else if(nwords == 4 && strcmp(word0, "process") == 0) {
-            proc_start_time[proc_num] = atoi(word2);
+            processes[proc_num]->start_time = atoi(word2);
+            processes[proc_num]->id = atoi(word1);
+            processes[proc_num]->state = STATE_NEW;
         }
 
         else if(nwords == 4 && strcmp(word0, "i/o") == 0) {
-            proc_event_type[proc_num][proc_total_events[proc_num]] = EVENT_IO;
-            proc_event_time[proc_num][proc_total_events[proc_num]] = atoi(word1);
-            proc_event_device[proc_num][proc_total_events[proc_num]] = find_device_id(word2);
-            proc_event_data[proc_num][proc_total_events[proc_num]] = atoi(word3);
-            proc_total_events[proc_num]++;
+            struct Event *event = &processes[proc_num]->events[processes[proc_num]->total_events];
+            event->type = EVENT_IO;
+            event->time = atoi(word1);
+            event->device = find_device_id(word2);
+            event->data = atoi(word3);
+            processes[proc_num]->total_events++;
         }
 
         else if(nwords == 2 && strcmp(word0, "exit") == 0) {
-            proc_event_type[proc_num][proc_total_events[proc_num]] = EVENT_EXIT;
-            proc_event_time[proc_num][proc_total_events[proc_num]] = atoi(word1);
-            proc_total_events[proc_num]++;
+            struct Event *event = &processes[proc_num]->events[processes[proc_num]->total_events];
+            event->type = EVENT_EXIT;
+            event->time = atoi(word1);
+            processes[proc_num]->total_events++;
 
             proc_num++; // End of this process
         }
@@ -202,17 +224,17 @@ void parse_tracefile(char program[], char tracefile[])
 
         for (int i = 0; i < proc_num; i++)
         {
-            printf("Process: %2i | Start time: %ius | Number of events: %3i\n", i, proc_start_time[i], proc_total_events[i]);
-            for (int j = 0; j < proc_total_events[i]; j++)
-            {
-                if (proc_event_type[i][j] == EVENT_IO)
+            struct Process *process = processes[i];
+            printf("Process: %2i | Start time: %ius | Number of events: %3i\n", process->id, process->start_time, process->total_events);
+            for (int j = 0; j < process->total_events; j++)
+            {                
+                struct Event *event = &process->events[j];
+                if (event->type == EVENT_IO)
                 {
-                    printf("\tEvent type:  i/o | Occurrence time: %5i | Device name: %6s | Data: %6i bytes\n", proc_event_time[i][j], device_name[proc_event_device[i][j]], proc_event_data[i][j]);
+                    printf("\tEvent type:  i/o | Occurrence time: %5i | Device name: %6s | Data: %6i bytes\n", event->time, device_name[event->device], event->data);
                 } else {
-                    printf("\tEvent type: exit | Occurrence time: %5i\n", proc_event_time[i][j]);
+                    printf("\tEvent type: exit | Occurrence time: %5i\n", event->time);
                 }
-                
-                
             }
             
         }
@@ -232,27 +254,29 @@ int next_proc() {
     int first_time = INT_MAX;
     
     for (int i = 0; i < proc_num; i++) {
-        if (proc_started[i] == 0 && proc_start_time[i] < first_time) {
+        if (processes[i]->state == STATE_NEW && processes[i]->start_time < first_time) {
             first_id = i;
-            first_time = proc_start_time[i];
+            first_time = processes[i]->start_time;
         }
     }
     
     if (first_id != NO_PROC) {
-        proc_started[first_id] = 1;
+        processes[first_id]->state = STATE_READY;
     }
-    
+
     return first_id;
 }
 
 int find_event_time(int time_quantum, int context_switch_time, int proc_id) {
-    int process_time_to_next_event = proc_event_time[proc_id][proc_current_event[proc_id]] - proc_total_time[proc_id];
+    struct Process *process = processes[proc_id];
+
+    int process_time_to_next_event = current_event(process)->time - process->total_time;
     
     if (process_time_to_next_event <= time_quantum) {
-        proc_total_time[proc_id] += process_time_to_next_event;
+        process->total_time += process_time_to_next_event;
         return system_time + context_switch_time + process_time_to_next_event;
     } else {
-        proc_total_time[proc_id] += time_quantum;
+        process->total_time += time_quantum;
         return system_time + context_switch_time + time_quantum;
     }
 }
@@ -282,16 +306,15 @@ void simulate_job_mix(int time_quantum)
     
     for (int i = 0; i < proc_num; i++)
     {
-        proc_started[i] = 0;
-        proc_current_event[i] = 0;
-        proc_total_time[i] = 0;
-        
+        processes[i]->current_event = 0;
+        processes[i]->total_time = 0;
     }
     
     // initalise event
     
     sim_next_start = next_proc();
-    sim_next_start_time = proc_start_time[sim_next_start];
+    sim_next_start_time = processes[sim_next_start]->start_time;
+    
     first_start_time = sim_next_start_time;
 
     if (debug_enable){
@@ -327,8 +350,8 @@ void simulate_job_mix(int time_quantum)
                 if (debug_enable) {
                     printf("EVENT | type: PROC_EVENT time: %6ius\n", next_event_time);
                     printf("      | Advancing system time from %6ius to %6ius\n", system_time, next_event_time);
-                    printf("      | Current process time (%i) %ius\n", sim_curr_run, proc_total_time[sim_curr_run]);
-                    printf("      | Current next event time (%i, %i) %ius\n", sim_curr_run, proc_current_event[sim_curr_run], proc_event_time[sim_curr_run][proc_current_event[sim_curr_run]]);
+                    printf("      | Current process time (%i) %ius\n", sim_curr_run, processes[sim_curr_run]->total_time);
+                    printf("      | Current next event time (%i, %i) %ius\n", sim_curr_run, processes[sim_curr_run]->current_event, current_event(processes[sim_curr_run])->time);
                     printf("      | sim_curr_run = %i sim_curr_io = %i sim_next_start = %i\n", sim_curr_run, sim_curr_io, sim_next_start);
                 }
                 
@@ -336,20 +359,19 @@ void simulate_job_mix(int time_quantum)
                 
                 
                 // i/o, TQ or exit?
-                
-                if (proc_total_time[sim_curr_run] == proc_event_time[sim_curr_run][proc_current_event[sim_curr_run]]) {
+                if (processes[sim_curr_run]->total_time == current_event(processes[sim_curr_run])->time) {
                     
-                    if (proc_event_type[sim_curr_run][proc_current_event[sim_curr_run]] == EVENT_IO) {
+                    if (current_event(processes[sim_curr_run])->type == EVENT_IO) {
                         if (debug_enable) {
-                            printf("      | (#%i) I/O request event occured for process %i\n",proc_current_event[sim_curr_run], sim_curr_run);
+                            printf("      | (%i) I/O request event occured for process %i\n", processes[sim_curr_run]->current_event, sim_curr_run);
                         }
                         // IO EVENT
-                        int device_id = proc_event_device[sim_curr_run][proc_current_event[sim_curr_run]];
+                        int device_id = current_event(processes[sim_curr_run])->device;
                         
                         // adds to queue / goes onto bus (aquire time)
                         if (sim_curr_io == NO_PROC) {
                             double this_device_rate = (double) device_rate[device_id] / 1000000.0; // second -> us
-                            double data_amount = proc_event_data[sim_curr_run][proc_current_event[sim_curr_run]];
+                            double data_amount = current_event(processes[sim_curr_run])->data;
                             int transfer_time = (int) ceil(data_amount / this_device_rate);
                             
                             sim_curr_io = sim_curr_run;
@@ -379,7 +401,7 @@ void simulate_job_mix(int time_quantum)
                             sim_curr_run_event_time = find_event_time(time_quantum, TIME_CONTEXT_SWITCH, sim_curr_run);
                         }
                     } else {
-                        proc_current_event[sim_curr_run]++; // Event processed, iterate
+                        processes[sim_curr_run]->current_event++; // Event processed, iterate
                         
                         if (debug_enable) {
                             printf("EXIT  | Exit event occured for process %i\n", sim_curr_run);
@@ -443,7 +465,7 @@ void simulate_job_mix(int time_quantum)
                     }
                 }
 
-                proc_current_event[sim_curr_io]++; // Event processed, iterate
+                processes[sim_curr_io]->current_event++;
                 
                 // get something from bus boi
                 int next_io_proc = NO_PROC;
@@ -467,14 +489,14 @@ void simulate_job_mix(int time_quantum)
                     if (debug_enable) {
                         printf("      | Fastest device with i/o waiting '%s'\n", device_name[best_device_id]);
                         printf("      | Blocked process id: %i\n", next_io_proc);
-                        printf("      |     Current event: %i\n", proc_current_event[next_io_proc]);
-                        printf("      |     Process time : %i\n", proc_total_time[next_io_proc]);
+                        printf("      |     Current event: %i\n", processes[next_io_proc]->current_event);
+                        printf("      |     Process time : %i\n", processes[next_io_proc]->total_time);
                     }
                     
 
                     // Put device
                     double this_device_rate = (double) best_device_rate / 1000000.0; // second -> us
-                    double data_amount = proc_event_data[next_io_proc][proc_current_event[next_io_proc]];
+                    double data_amount = current_event(processes[next_io_proc])->data;
                     int transfer_time = (int) ceil( data_amount / this_device_rate);
                     
                     
@@ -510,7 +532,7 @@ void simulate_job_mix(int time_quantum)
                 
                 sim_next_start = next_proc();
                 if (sim_next_start != NO_PROC) {
-                    sim_next_start_time = proc_start_time[sim_next_start];
+                    sim_next_start_time = processes[sim_next_start]->start_time;
                 }
                 
                 break;
@@ -588,6 +610,12 @@ int main(int argcount, char *argvalue[])
         usage(argvalue[0]);
     }
 
+    // Allocate space for data structures
+    for (int i = 0; i < MAX_PROCESSES; i++)
+    {
+        processes[i] = (struct Process*)malloc(sizeof(struct Process));
+    }
+
 //  READ THE JOB-MIX FROM THE TRACEFILE, STORING INFORMATION IN DATA-STRUCTURES
     parse_tracefile(argvalue[0], argvalue[1]);
 
@@ -601,6 +629,13 @@ int main(int argcount, char *argvalue[])
 
 //  PRINT THE PROGRAM'S RESULT
     printf("best %i %i\n", optimal_time_quantum, total_process_completion_time);
+
+    // Free malloced space
+    for (int i = 0; i < MAX_PROCESSES; i++)
+    {
+        free(processes[i]);
+        processes[i] = NULL;
+    }
 
     exit(EXIT_SUCCESS);
 }

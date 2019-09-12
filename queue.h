@@ -6,16 +6,16 @@ struct queue {
     int curr_size;
 };
 
-struct queue* new_queue(int size);
+extern struct queue* new_queue(int size);
 
-void free_queue(struct queue *q);
+extern void free_queue(struct queue *q);
 
-int size(struct queue *q);
+extern int size(struct queue *q);
 
-int is_empty(struct queue *q);
+extern int is_empty(struct queue *q);
 
-int front(struct queue *q);
+extern int front(struct queue *q);
 
-void enqueue(struct queue *q, int item);
+extern void enqueue(struct queue *q, int item);
 
-void dequeue(struct queue *q);
+extern void dequeue(struct queue *q);
