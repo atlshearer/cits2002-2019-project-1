@@ -82,7 +82,7 @@ struct queue *sim_device_queue[MAX_DEVICES];
 
 
 // Flags
-int debug_enable = 1;
+int debug_enable = 0; 
 
 
 //  ----------------------------------------------------------------------
@@ -329,6 +329,7 @@ void simulate_job_mix(int time_quantum)
                     printf("      | Advancing system time from %6ius to %6ius\n", system_time, next_event_time);
                     printf("      | Current process time (%i) %ius\n", sim_curr_run, proc_total_time[sim_curr_run]);
                     printf("      | Current next event time (%i, %i) %ius\n", sim_curr_run, proc_current_event[sim_curr_run], proc_event_time[sim_curr_run][proc_current_event[sim_curr_run]]);
+                    printf("      | sim_curr_run = %i sim_curr_io = %i sim_next_start = %i\n", sim_curr_run, sim_curr_io, sim_next_start);
                 }
                 
                 system_time = next_event_time;
@@ -349,7 +350,7 @@ void simulate_job_mix(int time_quantum)
                         if (sim_curr_io == NO_PROC) {
                             double this_device_rate = (double) device_rate[device_id] / 1000000.0; // second -> us
                             double data_amount = proc_event_data[sim_curr_run][proc_current_event[sim_curr_run]];
-                            int transfer_time = ceil((int) data_amount / this_device_rate);
+                            int transfer_time = (int) ceil(data_amount / this_device_rate);
                             
                             sim_curr_io = sim_curr_run;
                             sim_curr_io_event_time = system_time + transfer_time + TIME_ACQUIRE_BUS;
@@ -368,7 +369,6 @@ void simulate_job_mix(int time_quantum)
                         }
                         
                         
-                        // BUG IS BELOW
                         // proc leaves cpu (new proc dispatched to cpu)
                         if (is_empty(sim_ready_queue)) {
                             sim_curr_run = NO_PROC;
@@ -378,7 +378,6 @@ void simulate_job_mix(int time_quantum)
                             
                             sim_curr_run_event_time = find_event_time(time_quantum, TIME_CONTEXT_SWITCH, sim_curr_run);
                         }
-                        // BUG IS ABOVE
                     } else {
                         proc_current_event[sim_curr_run]++; // Event processed, iterate
                         
@@ -443,6 +442,8 @@ void simulate_job_mix(int time_quantum)
                         printf("      | Process running, moving to ready queue. %i in queue\n", size(sim_ready_queue));
                     }
                 }
+
+                proc_current_event[sim_curr_io]++; // Event processed, iterate
                 
                 // get something from bus boi
                 int next_io_proc = NO_PROC;
@@ -474,7 +475,7 @@ void simulate_job_mix(int time_quantum)
                     // Put device
                     double this_device_rate = (double) best_device_rate / 1000000.0; // second -> us
                     double data_amount = proc_event_data[next_io_proc][proc_current_event[next_io_proc]];
-                    int transfer_time = ceil((int) data_amount / this_device_rate);
+                    int transfer_time = (int) ceil( data_amount / this_device_rate);
                     
                     
                     sim_curr_io = next_io_proc;
@@ -489,8 +490,6 @@ void simulate_job_mix(int time_quantum)
                         printf("      | No processes blocked. Bus freed\n");
                     }
                 }
-                printf("iterating event counter of proc %i\n", sim_curr_run);
-                proc_current_event[sim_curr_run]++; // Event processed, iterate
                 
                 break;
             
