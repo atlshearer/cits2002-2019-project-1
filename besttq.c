@@ -54,11 +54,8 @@ int  device_rate[MAX_DEVICES] = {INT_MAX};
 #define EVENT_IO 1
 #define EVENT_EXIT 2
 
-#define STATE_NEW 1
-#define STATE_READY 2
-#define STATE_RUNNING 3
-#define STATE_BLOCKED 4
-#define STATE_EXIT 5
+#define STATE_NEW 1    // Process has not yet started
+#define STATE_READY 2  // Process has started, may be ready, running, blocked or exited
 
 struct Event {
     int type;
