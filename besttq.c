@@ -1,10 +1,9 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <stddef.h>
 #include <string.h>
 #include <limits.h>
 #include <math.h>
-
-#include "queue.h"
 
 /* CITS2002 Project 1 2019
    Name(s):             Alexander Shearer, Thomas Kinsella
@@ -41,19 +40,103 @@ int optimal_time_quantum                = 0;
 int total_process_completion_time       = INT_MAX;
 
 //  ----------------------------------------------------------------------
-// DATA STRUCTURES 
+//  QUEUE IMPLEMENTATION
 
-// DEVICES
-int  device_num = 0; // Number of devices
+struct queue {
+    int *array;
+    int max_size;
+    int front;
+    int back;
+    int curr_size;
+};
+
+struct queue* new_queue(int size) {
+    struct queue *q = NULL;
+    q = (struct queue*)malloc(sizeof(struct queue));
+    
+    if (q == NULL)
+    {
+        fprintf(stderr, "Queue ptr memeory allocation failed.");
+        exit(EXIT_FAILURE);
+    }
+    
+    
+    q->array = (int*)malloc(size * sizeof(int));
+    
+    if (q->array == NULL)
+    {
+        fprintf(stderr, "Queue arry memeory allocation failed.");
+        exit(EXIT_FAILURE);
+    }
+    
+    q->max_size = size;
+    q->front = 0;
+    q->back = -1;
+    q->curr_size = 0;
+    
+    return q;
+}
+
+void free_queue(struct queue *q) {
+    free(q->array);
+    free(q);
+}
+
+int size(struct queue *q) {
+    return q->curr_size;
+}
+
+int is_empty(struct queue *q) {
+    return size(q) == 0;
+}
+
+int front(struct queue *q) {
+    if (is_empty(q))
+    {
+        fprintf(stderr, "Queue is empty, invalid operation\nTerminating program\n");
+        exit(EXIT_FAILURE);
+    }
+    
+    return q->array[q->front];
+}
+
+void enqueue(struct queue *q, int item) {
+    if (size(q) == q->max_size)
+    {
+        fprintf(stderr, "Queue is full, unable to enqueue more items\nTerminating program\n");
+        exit(EXIT_FAILURE);
+    }
+    
+    q->back = (q->back + 1) % q->max_size;
+    q->array[q->back] = item;
+    q->curr_size++;
+}
+
+void dequeue(struct queue *q) {
+    if (is_empty(q))
+    {
+        fprintf(stderr, "Queue is empty, invalid operation\nTerminating program\n");
+        exit(EXIT_FAILURE);
+    }
+    
+    q->front = (q->front + 1) % q->max_size;
+    q->curr_size--;
+}
+
+//  ----------------------------------------------------------------------
+//  DATA STRUCTURES
+
+//  DEVICES
+int  device_num = 0; // Total number of devices
 char device_name[MAX_DEVICES][MAX_DEVICE_NAME + 1] = {""};
 int  device_rate[MAX_DEVICES] = {INT_MAX};
 
-// may need a queue for each device to store upcoming i/o
-
-// PROCESSES
+//  PROCESSES
+// Process event types
 #define EVENT_IO 1
 #define EVENT_EXIT 2
 
+// Process states
 #define STATE_NEW 1    // Process has not yet started
 #define STATE_READY 2  // Process has started, may be ready, running, blocked or exited
 
@@ -81,11 +164,12 @@ struct Event* current_event(struct Process* proc) {
     return &proc->events[proc->current_event];
 }
 
-// Simulation data
+// SIMULATION VARIABLES
+// Simulation event types
 #define NO_EVENT -1
-#define PROC_EVENT 1     //next event is a processor event - TQ, i/o req, exit
-#define IO_FINISH 2   // next event is an i/o event completing
-#define NEW_PROC 3 // a new process needs to be added to ready queue
+#define PROC_EVENT 1   //next event is a processor event - timeout, i/o req, exit
+#define IO_FINISH 2    // next event is an i/o event completing
+#define NEW_PROC 3     // a new process needs to be added to ready queue
 
 #define NO_PROC -1
 #define NO_DEVICE -1
@@ -95,16 +179,11 @@ int system_time = 0;
 struct queue *sim_ready_queue;
 struct queue *sim_device_queue[MAX_DEVICES];
 
-
-// Flags
-int debug_enable = 0; 
-
+// GENERAL FLAGS
+int debug_enable = 0;
 
 //  ----------------------------------------------------------------------
-//  QUEUE HELPER FUNCTIONS
-
-
-//  ----------------------------------------------------------------------
+//  PARSING OF TRACEFILE
 
 #define CHAR_COMMENT            '#'
 #define MAXWORD                 20
@@ -146,8 +225,6 @@ void parse_tracefile(char program[], char tracefile[])
         // ATTEMPT TO BREAK EACH LINE INTO A NUMBER OF WORDS, USING sscanf()
         char    word0[MAXWORD], word1[MAXWORD], word2[MAXWORD], word3[MAXWORD];
         int nwords = sscanf(line, "%s %s %s %s", word0, word1, word2, word3);
-
-        //      printf("%i = %s", nwords, line);
 
         //  WE WILL SIMPLY IGNORE ANY LINE WITHOUT ANY WORDS
         if(nwords <= 0) {
@@ -202,10 +279,6 @@ void parse_tracefile(char program[], char tracefile[])
     }
     fclose(fp);
 
-
-    // DEBUG
-
-    // Print devices & rates
     if (debug_enable) {
         printf("-- Devices --\nNumber of devices: %i\n", device_num);
 
@@ -216,7 +289,6 @@ void parse_tracefile(char program[], char tracefile[])
 
         printf("\n");
 
-        // Print processes
         printf("-- Processes --\nNumber of processes: %i\n", proc_num);
 
         for (int i = 0; i < proc_num; i++)
@@ -243,8 +315,9 @@ void parse_tracefile(char program[], char tracefile[])
 #undef  CHAR_COMMENT
 
 //  ----------------------------------------------------------------------
+//  SIMUALTION
 
-// Finds id of next process that will start
+// Finds the index of the next process to be admitted
 int next_proc() {
     int first_id = NO_PROC;
     int first_time = INT_MAX;
@@ -263,6 +336,7 @@ int next_proc() {
     return first_id;
 }
 
+// Determines how long a given process will run
 int find_event_time(int time_quantum, int context_switch_time, int proc_id) {
     struct Process *process = processes[proc_id];
 
@@ -297,12 +371,14 @@ void enter_device_queue(int process_id, int device_id) {
 void simulate_job_mix(int time_quantum)
 {
     printf("Testing with TQ = %5ius... ", time_quantum);
+    
     // Initalise queues
     sim_ready_queue = new_queue(MAX_PROCESSES);
     for (int i = 0; i < device_num; i++)
     {
         sim_device_queue[i] = new_queue(MAX_PROCESSES);
     }
+    
     // Reset state
     int sim_curr_run = NO_PROC;
     int sim_curr_run_event_time = 0;
@@ -332,7 +408,7 @@ void simulate_job_mix(int time_quantum)
         printf("Starting simulation with TQ: %4ius\n", time_quantum);
     }
     
-
+    // Setup and enter main simulation loop
     char running = 1;
 
     while (running != 0) {
@@ -468,7 +544,7 @@ void simulate_job_mix(int time_quantum)
             }
         }
         
-        // Find fastest I/O with processes in queue and 'lock' databus
+        // Find highest priority process to aquire bus
         if (sim_curr_io == NO_PROC)
         {
             int best_device_id = NO_DEVICE;
@@ -513,7 +589,7 @@ void simulate_job_mix(int time_quantum)
         optimal_time_quantum = time_quantum;
     }
 
-    // Free queue
+    // Free queues
     free_queue(sim_ready_queue);
     sim_ready_queue = NULL;
     
